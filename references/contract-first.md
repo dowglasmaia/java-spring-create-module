@@ -2,18 +2,19 @@
 
 ## Read the project's shape
 
-- Locate the real entry document, commonly `src/main/resources/openapi/openapi.yaml`. Multi-file descriptions use `$ref` relative to the referring file. Use `scripts/inspect-contract.mjs` to validate and bundle for inspection; keep the source YAML as the authority.
-- Search `pom.xml` for `openapi-generator-maven-plugin`, `inputSpec`, `generatorName`, `interfaceOnly`, generated package names, and the phase that runs it. Inspect existing generated interfaces and DTOs after `mvnw generate-sources` (or the project's configured phase). Never modify generated sources. If the project does not use OpenAPI Generator, implement its established REST boundary directly from the contract; do not introduce the plugin merely to satisfy this reference shape.
-- Inspect a nearby completed module, its `package-info.java`, controller, use case class, domain model, output port/adapter, exception handling, and tests. Follow that layout. A project created by `java-spring-scaffold` places Spring Modulith modules as sibling packages under the application base package, with `api`, `application`, `domain`, and `infrastructure` inside each. Other projects may organize these differently.
+- Locate the real entry document, commonly `src/main/resources/openapi/openapi.yaml` (or `swagger/*.yaml`). Multi-file descriptions use `$ref` relative to the referring file. Use `scripts/inspect-contract.mjs` to validate and list operations; keep the source YAML as the authority.
+- Search `pom.xml` for the generator (`openapi-generator-maven-plugin` or `swagger-codegen-maven-plugin`), `inputSpec`, `interfaceOnly`, generated package names and the phase that runs it. Inspect the generated interfaces and DTOs after `generate-sources`. **Never modify generated sources.** If the project has no generator, implement the REST boundary directly from the contract with records; do not introduce the plugin just to satisfy this reference.
+- Inspect a nearby completed feature (its `domain`, `application`, `infra.web`, `infra.persistence`, tests) and follow it.
 
 ## Map the selected operations
 
-1. Match the developer's selection to exact `operationId`, tag/resource, or HTTP method plus path. A tag can intentionally select several related operations. If matches cross unrelated domains, ask which operations to implement.
-2. Record method, path, parameters, request body, response status/body/headers, security, and shared schemas for every selected operation. Do not infer a request field as mandatory solely because it appears in an example. Do not merge request and response DTOs when the contract distinguishes them.
-3. If generated interfaces exist, implement the corresponding interface with exactly its signatures and generated DTOs. Keep generated DTOs at the REST boundary; map to domain/application inputs when the types or responsibilities differ. Do not create duplicate API interfaces or DTOs.
-4. Put orchestration in application use case classes (one concrete `<Verb><Noun>UseCase` per operation, no interface), business invariants in framework-free domain code, and technology concerns in infrastructure or the established API adapter. Inject collaborators through constructors. Add a port or mapper only when it decouples a concrete dependency or conversion.
-5. Follow the project's actual persistence choice. Do not silently treat a temporary map as durable storage or return fabricated success from unimplemented work. If persistence, authorization, or business outcomes are essential yet unspecified, ask a focused question before implementing those parts.
+1. Match the selection to exact `operationId`, tag/resource or `METHOD /path`. A tag can intentionally select several related operations. If matches cross unrelated domains, ask which to implement.
+2. Record method, path, parameters, request body, response status/body/headers, security and shared schemas for every selected operation. Do not treat a request field as mandatory only because it appears in an example. Do not merge request and response types when the contract distinguishes them.
+3. If a generated interface exists, the controller (`infra.web`) implements it with exactly its signatures. **Generated DTOs stay inside `infra.web`**: the controller maps them to domain/service inputs and back. Do not create duplicate API interfaces or DTOs. When one generated interface covers several features (one tag, one controller), the controller lives in the feature that owns the tag and calls the other features' services (D6).
+4. Orchestration goes to the feature's `<Feature>Service` (one concrete class, no interface), business invariants to framework-free `domain`, technology to `infra`. Constructor injection. Add a port only for an output (D2) and a mapper only where D3 says so.
+5. Follow the project's actual persistence choice. Do not silently treat a temporary map as durable storage or return fabricated success from unimplemented work. If persistence, authorization or business outcomes are essential yet unspecified, ask one focused question before implementing those parts.
+6. Do not change the OpenAPI contract unless explicitly requested (contract authoring belongs to the contract skill).
 
-## Preserve boundaries
+## Boundaries
 
-For Spring Modulith, keep internal packages inside the owning business module and use exported APIs or events for cross-module collaboration. Extend existing components rather than introducing duplicate controllers, beans, or routes. Limit changes outside the selected module to necessary wiring, tests, and build adjustments, and explain those changes.
+Extend existing components rather than introducing duplicate controllers, beans or routes. Limit changes outside the selected feature to necessary wiring, tests and build adjustments, and explain them.
