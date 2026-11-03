@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.acme.shop.category.CategoryServiceTest
--------------------------------------------------------------------------------
-Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.374 s -- in com.acme.shop.category.CategoryServiceTest
