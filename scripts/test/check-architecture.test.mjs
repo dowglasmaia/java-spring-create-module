@@ -51,69 +51,75 @@ test('A01 forbids Lombok and SLF4J in the domain', () => {
   rmSync(src, { recursive: true });
 });
 
-test('A02 domain depends on application or infra', () => {
+test('A02 domain depends on application, api or infrastructure', () => {
   const src = tree({
-    'order/domain/Order.java': `import ${BASE}.order.application.OrderService;\nimport ${BASE}.order.infra.persistence.OrderEntity;\nclass Order {}`,
-    'order/application/OrderService.java': 'class OrderService {}',
-    'order/infra/persistence/OrderEntity.java': 'class OrderEntity {}',
+    'order/domain/Order.java': `import ${BASE}.order.application.usecase.GetOrderUseCase;\nimport ${BASE}.order.api.OrderController;\nimport ${BASE}.order.infrastructure.persistence.OrderEntity;\nclass Order {}`,
+    'order/application/usecase/GetOrderUseCase.java': 'class GetOrderUseCase {}',
+    'order/api/OrderController.java': 'class OrderController {}',
+    'order/infrastructure/persistence/OrderEntity.java': 'class OrderEntity {}',
   });
-  assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A02', 'A02']);
+  assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A02', 'A02', 'A02']);
   rmSync(src, { recursive: true });
 });
 
-test('A03 application depends on infra or web/persistence technology', () => {
+test('A03 application depends on infrastructure, api or web/persistence technology', () => {
   const src = tree({
-    'order/application/OrderService.java': `import ${BASE}.order.infra.persistence.OrderEntity;\nimport jakarta.persistence.EntityManager;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\nclass OrderService {}`,
-    'order/infra/persistence/OrderEntity.java': 'class OrderEntity {}',
+    'order/application/usecase/PayOrderUseCase.java': `import ${BASE}.order.infrastructure.persistence.OrderEntity;\nimport jakarta.persistence.EntityManager;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\nclass PayOrderUseCase {}`,
+    'order/infrastructure/persistence/OrderEntity.java': 'class OrderEntity {}',
   });
   const result = check({ src, basePackage: BASE });
   assert.deepEqual(rules(result), ['A03', 'A03', 'A03']); // @Service and @Transactional imports are allowed
   rmSync(src, { recursive: true });
 });
 
-test('A04 web must not use persistence', () => {
+test('A04 the api must not use the infrastructure', () => {
   const src = tree({
-    'order/infra/web/OrderController.java': `import ${BASE}.order.infra.persistence.OrderJpaRepository;\nclass OrderController {}`,
-    'order/infra/persistence/OrderJpaRepository.java': 'interface OrderJpaRepository {}',
+    'order/api/OrderController.java': `import ${BASE}.order.infrastructure.persistence.OrderJpaRepository;\nclass OrderController {}`,
+    'order/infrastructure/persistence/OrderJpaRepository.java': 'interface OrderJpaRepository {}',
   });
   assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A04']);
   rmSync(src, { recursive: true });
 });
 
-test('A05 a feature must not use another feature\'s infra, but may use its application and domain', () => {
+test('A05 a feature must not use another feature\'s infrastructure, but may use its use cases and domain', () => {
   const src = tree({
-    'invoice/application/InvoiceService.java': `import ${BASE}.order.application.OrderService;\nimport ${BASE}.order.domain.Order;\nimport ${BASE}.order.infra.persistence.OrderEntity;\nclass InvoiceService {}`,
-    'order/application/OrderService.java': 'class OrderService {}',
+    'invoice/application/usecase/IssueInvoiceUseCase.java': `import ${BASE}.order.application.usecase.GetOrderUseCase;\nimport ${BASE}.order.domain.Order;\nimport ${BASE}.order.infrastructure.persistence.OrderEntity;\nclass IssueInvoiceUseCase {}`,
+    'order/application/usecase/GetOrderUseCase.java': 'class GetOrderUseCase {}',
     'order/domain/Order.java': 'class Order {}',
-    'order/infra/persistence/OrderEntity.java': 'class OrderEntity {}',
+    'order/infrastructure/persistence/OrderEntity.java': 'class OrderEntity {}',
   });
   const result = check({ src, basePackage: BASE });
-  assert.deepEqual(rules(result), ['A03', 'A05']); // the same import also breaks A03 (application -> infra)
-  assert.match(result.violations.find((v) => v.rule === 'A05').message, /feature 'invoice' uses infra of feature 'order'/);
+  assert.deepEqual(rules(result), ['A03', 'A05']); // the same import also breaks A03 (application -> infrastructure)
+  assert.match(result.violations.find((v) => v.rule === 'A05').message, /feature 'invoice' uses infrastructure of feature 'order'/);
   rmSync(src, { recursive: true });
 });
 
-test('A06 application declares an interface (annotation types and nested interfaces of records are not flagged by name)', () => {
-  const src = tree({ 'order/application/OrderUseCase.java': 'public interface OrderUseCase { void run(); }' });
+test('A06 ports are interfaces; a use case is a concrete class', () => {
+  const src = tree({
+    'order/application/usecase/PayOrderUseCase.java': 'public interface PayOrderUseCase { void run(); }',
+    'order/application/port/OrderRepository.java': 'public class OrderRepository {}',
+    'order/application/port/Fine.java': 'public interface Fine {}',
+  });
   const result = check({ src, basePackage: BASE });
-  assert.deepEqual(rules(result), ['A06']);
+  assert.deepEqual(rules(result), ['A06', 'A06']);
   rmSync(src, { recursive: true });
 });
 
 test('A07 stereotypes of other layers are not allowed in domain/application', () => {
   const src = tree({
     'order/domain/Order.java': '@Entity class Order {}',
-    'order/application/OrderService.java': '@RestController @Repository class OrderService {}',
+    'order/application/usecase/PayOrderUseCase.java': '@RestController @Repository class PayOrderUseCase {}',
+    'order/api/OrderController.java': '@Entity @Table class OrderController {}',
   });
-  assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A07', 'A07', 'A07']);
+  assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A07', 'A07', 'A07', 'A07', 'A07']);
   rmSync(src, { recursive: true });
 });
 
-test('A08 @Transactional not in domain or web, fine in application', () => {
+test('A08 @Transactional not in domain or api, fine in a use case', () => {
   const src = tree({
     'order/domain/Order.java': 'class Order { @Transactional void x() {} }',
-    'order/infra/web/OrderController.java': '@Transactional class OrderController {}',
-    'order/application/OrderService.java': '@Transactional class OrderService {}',
+    'order/api/OrderController.java': '@Transactional class OrderController {}',
+    'order/application/usecase/PayOrderUseCase.java': '@Transactional class PayOrderUseCase {}',
   });
   assert.deepEqual(rules(check({ src, basePackage: BASE })), ['A08', 'A08']);
   rmSync(src, { recursive: true });
@@ -134,11 +140,11 @@ test('A10 shared depends on no feature', () => {
   rmSync(src, { recursive: true });
 });
 
-test('A11 a rich feature keeps @Entity in infra.persistence; a flat crud feature may keep it in its package', () => {
+test('A11 a rich feature keeps @Entity in infrastructure.persistence; a flat crud feature may keep it in its package', () => {
   const rich = tree({
     'order/domain/Order.java': 'class Order {}',
-    'order/infra/web/OrderEntity.java': '@Entity class OrderEntity {}',
-    'order/infra/persistence/OrderRow.java': '@Entity class OrderRow {}',
+    'order/infrastructure/client/OrderEntity.java': '@Entity class OrderEntity {}',
+    'order/infrastructure/persistence/OrderRow.java': '@Entity class OrderRow {}',
   });
   assert.deepEqual(rules(check({ src: rich, basePackage: BASE })), ['A11']);
   const crud = tree({ 'category/Category.java': '@Entity class Category {}' });
@@ -147,14 +153,24 @@ test('A11 a rich feature keeps @Entity in infra.persistence; a flat crud feature
   rmSync(crud, { recursive: true });
 });
 
-test('warnings for class-per-use-case and Impl classes in application', () => {
+test('A12 use case naming and location', () => {
   const src = tree({
-    'order/application/CreateOrderUseCase.java': 'class CreateOrderUseCase {}',
-    'order/application/OrderServiceImpl.java': 'class OrderServiceImpl {}',
+    'order/application/usecase/CreateOrderService.java': 'class CreateOrderService {}',
+    'order/application/OrderThing.java': 'class OrderThing {}',
+    'order/domain/PayOrderUseCase.java': 'class PayOrderUseCase {}',
   });
   const result = check({ src, basePackage: BASE });
-  assert.deepEqual(result.violations, []);
-  assert.deepEqual(result.warnings.map((w) => w.rule).sort(), ['W01', 'W02']);
+  assert.deepEqual(rules(result), ['A12', 'A12']);
+  rmSync(src, { recursive: true });
+});
+
+test('warnings: a class loose in application, an Impl class, a crowded package', () => {
+  const loose = { 'order/application/OrderHelper.java': 'class OrderHelper {}', 'order/application/usecase/PayOrderUseCaseImpl.java': 'class PayOrderUseCaseImpl {}' };
+  const crowded = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`order/domain/Thing${i}.java`, `class Thing${i} {}`]));
+  const src = tree({ ...loose, ...crowded });
+  const result = check({ src, basePackage: BASE });
+  assert.deepEqual(rules(result), ['A12']); // PayOrderUseCaseImpl does not end with UseCase
+  assert.deepEqual(result.warnings.map((w) => w.rule).sort(), ['W01', 'W02', 'W04']);
   rmSync(src, { recursive: true });
 });
 

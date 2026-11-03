@@ -7,10 +7,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
-import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
@@ -24,8 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Architecture rules A01-A10 of the "Hexagonal Pragmática" model (see the java-spring-create-module skill).
- * Rule A11 (a rich feature keeps its @Entity in infra.persistence) is enforced by scripts/check-architecture.mjs.
+ * Architecture rules A01-A10 and A12 of the "Hexagonal Pragmática" model (see the java-spring-create-module skill).
+ * Layout per feature: api / application (port, usecase) / domain / infrastructure; plus a minimal shared.
+ * Rule A11 (a rich feature keeps its @Entity in infrastructure.persistence) is enforced by scripts/check-architecture.mjs.
  */
 @AnalyzeClasses(packages = "{{BASE}}", importOptions = {ImportOption.DoNotIncludeTests.class, ArchitectureTest.ExcludeLegacyPackages.class})
 class ArchitectureTest {
@@ -58,24 +59,24 @@ class ArchitectureTest {
     /** A02 - the domain does not depend on outer layers. */
     @ArchTest
     static final ArchRule domain_does_not_depend_on_outer_layers = noClasses().that().resideInAPackage("..domain..")
-            .should().dependOnClassesThat().resideInAnyPackage("..application..", "..infra..");
+            .should().dependOnClassesThat().resideInAnyPackage("..application..", "..api..", "..infrastructure..");
 
-    /** A03 - application does not know infrastructure or web/persistence technology. */
+    /** A03 - application knows neither the api nor the infrastructure, nor web/persistence technology. */
     @ArchTest
-    static final ArchRule application_does_not_depend_on_infra = noClasses().that().resideInAPackage("..application..")
+    static final ArchRule application_does_not_depend_on_api_or_infrastructure = noClasses().that().resideInAPackage("..application..")
             .should().dependOnClassesThat().resideInAnyPackage(
-                    "..infra..", "jakarta.persistence..", "jakarta.servlet..", "org.springframework.web..",
+                    "..api..", "..infrastructure..", "jakarta.persistence..", "jakarta.servlet..", "org.springframework.web..",
                     "org.springframework.http..", "org.springframework.data..", "org.springframework.jdbc..",
                     "org.springframework.kafka..", "org.springframework.cloud..");
 
-    /** A04 - web never touches persistence. */
+    /** A04 - the api (inbound adapter) talks to use cases and the domain, never to the infrastructure. */
     @ArchTest
-    static final ArchRule web_does_not_touch_persistence = noClasses().that().resideInAPackage("..infra.web..")
-            .should().dependOnClassesThat().resideInAPackage("..infra.persistence..");
+    static final ArchRule api_does_not_touch_infrastructure = noClasses().that().resideInAPackage("..api..")
+            .should().dependOnClassesThat().resideInAPackage("..infrastructure..");
 
-    /** A05 - a feature does not use another feature's infra. */
+    /** A05 - a feature does not use another feature's infrastructure or api. */
     @ArchTest
-    static final ArchRule features_do_not_use_other_features_infra = classes().should(new ArchCondition<JavaClass>("not use another feature's infra") {
+    static final ArchRule features_do_not_use_other_features_infrastructure_or_api = classes().should(new ArchCondition<JavaClass>("not use another feature's infrastructure or api") {
         @Override
         public void check(JavaClass origin, ConditionEvents events) {
             String own = featureOf(origin.getPackageName());
@@ -83,20 +84,24 @@ class ArchitectureTest {
                 String targetPackage = dependency.getTargetClass().getPackageName();
                 String target = featureOf(targetPackage);
                 if (target != null && own != null && !target.equals(own) && !target.equals("shared")
-                        && (targetPackage.contains(".infra.") || targetPackage.endsWith(".infra"))) {
+                        && (targetPackage.contains(".infrastructure") || targetPackage.contains(".api"))) {
                     events.add(SimpleConditionEvent.violated(origin, origin.getName() + " uses " + dependency.getTargetClass().getName()
-                            + " (infra of feature '" + target + "')"));
+                            + " (infrastructure or api of feature '" + target + "')"));
                 }
             }
         }
     });
 
-    /** A06 - no interfaces in application (the service is a concrete class; ports live in domain). */
+    /** A06 - ports are interfaces; use cases are concrete classes (no interface per use case). */
     @ArchTest
-    static final ArchRule application_declares_no_interfaces = classes().that().resideInAPackage("..application..")
+    static final ArchRule ports_are_interfaces = classes().that().resideInAPackage("..application.port..")
+            .should().beInterfaces();
+
+    @ArchTest
+    static final ArchRule use_cases_are_not_interfaces = classes().that().resideInAPackage("..application.usecase..")
             .should().notBeInterfaces();
 
-    /** A07 - controllers and persistence stereotypes stay out of domain and application. */
+    /** A07 - stereotypes and ORM annotations stay in their layer: @Entity/@Table only in infrastructure. */
     @ArchTest
     static final ArchRule web_and_persistence_stereotypes_stay_out_of_domain_and_application = noClasses()
             .that().resideInAnyPackage("..domain..", "..application..")
@@ -104,16 +109,23 @@ class ArchitectureTest {
             .orShould().beAnnotatedWith(Controller.class)
             .orShould().beAnnotatedWith(RestControllerAdvice.class)
             .orShould().beAnnotatedWith(Repository.class)
-            .orShould().beAnnotatedWith("jakarta.persistence.Entity");
+            .orShould().beAnnotatedWith("jakarta.persistence.Entity")
+            .orShould().beAnnotatedWith("jakarta.persistence.Table");
 
-    /** A08 - transactions belong to the application services, not to the domain or the web layer. */
     @ArchTest
-    static final ArchRule no_transactions_in_domain_or_web = noClasses().that().resideInAnyPackage("..domain..", "..infra.web..")
+    static final ArchRule orm_annotations_stay_out_of_the_api = noClasses().that().resideInAPackage("..api..")
+            .should().beAnnotatedWith(Repository.class)
+            .orShould().beAnnotatedWith("jakarta.persistence.Entity")
+            .orShould().beAnnotatedWith("jakarta.persistence.Table");
+
+    /** A08 - transactions belong to the use cases, not to the domain or the api. */
+    @ArchTest
+    static final ArchRule no_transactions_in_domain_or_api = noClasses().that().resideInAnyPackage("..domain..", "..api..")
             .should().beAnnotatedWith(Transactional.class);
 
     @ArchTest
-    static final ArchRule no_transactional_methods_in_domain_or_web = noMethods().that().areDeclaredInClassesThat()
-            .resideInAnyPackage("..domain..", "..infra.web..").should().beAnnotatedWith(Transactional.class);
+    static final ArchRule no_transactional_methods_in_domain_or_api = noMethods().that().areDeclaredInClassesThat()
+            .resideInAnyPackage("..domain..", "..api..").should().beAnnotatedWith(Transactional.class);
 
     /** A09 - constructor injection only. */
     @ArchTest
@@ -133,6 +145,17 @@ class ArchitectureTest {
                     }
                 }
             });
+
+    /** A12 - one class per operation, named {@code <Verb><Noun>UseCase}, and only in application.usecase. */
+    @ArchTest
+    static final ArchRule use_cases_are_named_after_their_operation = classes().that().resideInAPackage("..application.usecase..")
+            .and().areNotNestedClasses().and().areNotAnonymousClasses()
+            .should().haveSimpleNameEndingWith("UseCase");
+
+    @ArchTest
+    static final ArchRule use_case_classes_live_in_the_usecase_package = classes().that().haveSimpleNameEndingWith("UseCase")
+            .and().areNotNestedClasses()
+            .should().resideInAPackage("..application.usecase..");
 
     /** The feature name is the first package segment after the base package; null outside the base package. */
     private static String featureOf(String packageName) {

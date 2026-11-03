@@ -1,6 +1,6 @@
 # java-spring-create-module - como usar com uma IA
 
-Skill que **cria, migra ou revisa um módulo de negócio** (uma *feature*) em um projeto Java Spring Boot **que já existe**, no modelo **"Hexagonal Pragmática"**: pacote por feature, domínio puro no centro, um serviço por feature, portas só para saídas, e web/JPA/clients como infraestrutura. Você pede a uma ferramenta de IA (Claude Code, Codex, Copilot...) e informa os dados da seção 4; ela segue o [SKILL.md](SKILL.md).
+Skill que **cria, migra ou revisa um módulo de negócio** (uma *feature*) em um projeto Java Spring Boot **que já existe**, no modelo **"Hexagonal Pragmática"**: pacote por feature, domínio puro no centro, uma classe de caso de uso por operação, portas só para saídas, `api` como adaptador de entrada e `infrastructure` (JPA, clients, mensageria) como adaptadores de saída. Você pede a uma ferramenta de IA (Claude Code, Codex, Copilot...) e informa os dados da seção 4; ela segue o [SKILL.md](SKILL.md).
 
 A skill é **híbrida e majoritariamente determinística**: tabelas de decisão, um script que gera o esqueleto, um verificador de arquitetura offline, um teste ArchUnit pronto e exemplos que compilam.
 
@@ -18,17 +18,21 @@ A skill é **híbrida e majoritariamente determinística**: tabelas de decisão,
 ```
 <base>/
   <feature>/
-    domain/        entidade com regra, value objects, enum, PORTA de saída (interface), exceções   <- Java puro
-    application/   <Feature>Service (casos de uso, @Transactional)                                <- sem interface
-    infra/
-      web/         Controller, Request/Response (records)
-      persistence/ <X>Entity (@Entity), <X>JpaRepository, <X>RepositoryAdapter (Entity <-> Domain)
-      client/      Feign/REST de APIs externas (implementa uma porta)
-      messaging/   Kafka/outbox (implementa uma porta)
-  shared/          erros base, handler global, Clock, segurança (o mínimo)
+    api/              Controller, Request/Response (records)                       <- adaptador de entrada
+    application/
+      port/           portas de saída (interfaces): Repository, Gateway, Publisher
+      usecase/        <Verbo><Substantivo>UseCase, 1 classe por operação (@Transactional)
+    domain/           entidade com regra, value objects, enum, exceções            <- Java puro, sem subpasta
+    infrastructure/
+      persistence/    <X>Entity (@Entity), <X>JpaRepository, <X>RepositoryAdapter (Entity <-> Domain)
+      client/         Feign/REST de APIs externas (implementa uma porta)
+      messaging/      Kafka/outbox (implementa uma porta)
+  shared/             erros base, handler global, Clock, segurança (o mínimo)
 ```
 
-Regras: dependências sempre para dentro; `domain` sem Spring/JPA/Jackson/Lombok/SLF4J; sem `*UseCase` por operação; sem interface para o serviço; `@Transactional` no serviço; módulo CRUD sem regra pode usar a entidade JPA direto (pacote plano). Detalhes: [references/architecture.md](references/architecture.md) e [references/decision-guide.md](references/decision-guide.md).
+Subpacote só quando o pai passa de 7 a 10 classes **e** há um critério claro de agrupamento (por subdomínio, nunca por tipo técnico).
+
+Regras: dependências sempre para dentro; `domain` sem Spring/JPA/Jackson/Lombok/SLF4J; `@Entity`/`@Table` só em `infrastructure`; um `UseCase` por operação, sem interface; `@Transactional` no caso de uso; módulo CRUD sem regra pode usar a entidade JPA direto (pacote plano). Detalhes: [references/architecture.md](references/architecture.md) e [references/decision-guide.md](references/decision-guide.md).
 
 ## 3. Pré-requisitos
 
@@ -88,7 +92,7 @@ node --test scripts/test/scaffold.test.mjs scripts/test/check-architecture.test.
 
 ## 7. Exemplos que compilam
 
-[examples/shop](examples/shop/README.md) é um mini-projeto Maven completo: a feature **`order`** (rich: domínio com regras, porta, serviço, adapter JPA, controller, testes por camada) e a feature **`category`** (crud plano), mais o `shared` e o `ArchitectureTest`. `mvn test` dentro da pasta: 39 testes verdes (JDK 17 e 21). O esqueleto gerado por `scaffold-module.mjs` também compila e passa (verificado). O `ArchitectureTest.java.tpl` está em [templates](templates).
+[examples/shop](examples/shop/README.md) é um mini-projeto Maven completo: a feature **`order`** (rich: domínio com regras, porta, casos de uso, adapter JPA, controller, testes por camada) e a feature **`category`** (crud plano), mais o `shared` e o `ArchitectureTest`. `mvn test` dentro da pasta: 46 testes verdes (JDK 17 e 21). O esqueleto gerado por `scaffold-module.mjs` também compila e passa (verificado). O `ArchitectureTest.java.tpl` está em [templates](templates).
 
 ## 8. O que esperar como resultado
 
@@ -100,7 +104,7 @@ Módulo (ou feature migrada) com testes, verificador em 0 violações, build ver
 |---|---|
 | A IA pergunta qual feature | Esperado: informe a feature (ou, em `migrar`, as classes antigas) |
 | `scaffold-module` recusa criar | Já existe arquivo no destino; escolha outro nome ou migre o existente |
-| Verificador acusa A01 em `domain` | Há `@Entity`, Lombok, Spring ou SLF4J no domínio: mova para `infra.persistence` ou reescreva em Java puro |
-| Verificador acusa A05 | Uma feature importa o `infra` de outra: use o serviço/`domain` da outra (D6) |
+| Verificador acusa A01 em `domain` | Há `@Entity`, Lombok, Spring ou SLF4J no domínio: mova para `infrastructure.persistence` ou reescreva em Java puro |
+| Verificador acusa A05 | Uma feature importa o `infrastructure`/`api` de outra: use o caso de uso/`domain` da outra (D6) |
 | `ArchitectureTest` não compila | Falta `archunit-junit5` no `pom.xml` (o script mostra o trecho) |
 | Mudou o comportamento depois de migrar | Um movimento foi misturado com mudança de lógica: volte ao commit anterior e separe |

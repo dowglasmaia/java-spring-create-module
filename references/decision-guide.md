@@ -11,18 +11,19 @@ Answer the four questions about the feature. **Any "yes" -> `rich`.** All "no" -
 | A calculation or a rule beyond bean validation? | total of items; fee; balance debit |
 | An outbound call or event (payment gateway, bank, Kafka)? | MaiaBank call; recharge event |
 
-`crud` examples: categories, tags, countries, settings lists. A feature starts `crud` and becomes `rich` the day a "yes" appears: then **migrate** it (create `domain`, split the entity), do not bolt rules onto the flat module.
+`crud` examples: categories, tags, countries, settings lists. A feature starts `crud` and becomes `rich` the day a "yes" appears: then **migrate** it (create `domain`, split the entity), do not bolt rules onto the flat module. A `crud` module is the only place with a `<Entity>Service` (flat package, no use case classes).
 
 ## D2 - port or not?
 
-| Dependency | Port in `domain`? | Name |
+| Dependency | Port in `application.port`? | Name |
 |---|---|---|
 | Database access of a rich feature | yes | `<Entity>Repository` |
 | External API / bank / payment | yes | `<Thing>Gateway` |
 | Event publishing | yes | `<Event>Publisher` |
 | E-mail / SMS / push | yes | `<Channel>Sender` |
+| Who is calling (token subject) | yes | `CallerIdentity` |
 | Clock | no | inject `java.time.Clock` |
-| The feature's own service | **no** | the controller uses the class |
+| A use case | **no** | the controller uses the class |
 | A mapper / validator / helper | **no** | plain class or static method |
 | Spring Data repository of a `crud` module | **no** | used directly by the service |
 
@@ -38,27 +39,38 @@ Answer the four questions about the feature. **Any "yes" -> `rich`.** All "no" -
 
 Domain objects are rebuilt from storage by a static `restore(...)` factory, never by setters or reflection.
 
-## D4 - split the service?
+## D4 - which use cases, and how are they named?
 
-Split `<Feature>Service` only if one is true: more than ~250 lines; two method groups share no collaborator; one group needs a different transaction model (for example Pix: reserve -> external call -> confirm, never inside one transaction). Name the new class by capability (`PixService`, `StatementService`), keep both in `application`. Never `*UseCase`, never an interface.
+One class per **operation** the feature exposes or that another feature needs: `<Verb><Noun>UseCase` with a public `execute(...)` (`CreateOrderUseCase`, `PayOrderUseCase`, `GetCurrentAccountUseCase`). Rules:
+
+| Situation | Do |
+|---|---|
+| Plain read | `Get<Noun>UseCase` / `List<Noun>sUseCase`, `@Transactional(readOnly = true)` |
+| State change | one use case per transition (`Pay`, `Cancel`), `@Transactional` |
+| Two operations share more than 3 lines of logic | move the logic to the domain (an intention method), not to a base class or a helper |
+| A use case needs another operation | inject that use case (same transaction, `REQUIRED`); never copy its code |
+| A flow must NOT be one transaction (reserve -> external call -> confirm, as Pix) | the use case orchestrates with `TransactionTemplate`; the external call stays outside any transaction |
+| More than ~10 use cases in the package | group by sub-domain (`usecase/transfer`), never by technical type |
+
+Never an interface for a use case, never `*Service` or `*Impl` in `application`.
 
 ## D5 - web contract
 
-| Situation | Controller |
+| Situation | Controller (in `api`) |
 |---|---|
-| OpenAPI-generated interface exists | `implements <Tag>Api` (not `final`), maps generated DTOs <-> domain at the boundary, inside `infra.web` |
-| No contract / hand-written endpoint | `@RestController` + `record` request/response in `infra.web` |
+| OpenAPI-generated interface exists | `implements <Tag>Api` (not `final`), maps generated DTOs <-> domain at the boundary |
+| No contract / hand-written endpoint | `@RestController` + `record` request/response |
 | Trivial contract (primitives only) | no request/response class: parameters directly |
 
-Controllers: no logic, no logging, no transactions, no repositories.
+Controllers: no logic, no logging, no transactions, no repositories; they depend on use cases.
 
 ## D6 - two features meet
 
 | Need | Do |
 |---|---|
-| A needs data/behaviour of B | call B's `application` service, use B's `domain` types |
-| A needs a different shape of B | declare a port in A's `domain` (`<B>Lookup`), implement it in A's `infra` by calling B's service |
-| A needs B's tables | never join across features in SQL from A's infra without a stated reason; ask |
+| A needs data/behaviour of B | call B's use case (`application.usecase`), use B's `domain` types |
+| A needs a different shape of B | declare a port in A's `application.port` (`<B>Lookup`), implement it in A's `infrastructure` by calling B's use case |
+| A needs B's tables | never join across features in SQL from A's infrastructure without a stated reason; ask |
 
 ## D7 - exceptions
 
@@ -66,7 +78,7 @@ Controllers: no logic, no logging, no transactions, no repositories.
 |---|---|---|
 | Business rule broken | feature exception extending `shared.error.BusinessRuleException` | 422 `{code:"UNPROCESSABLE_ENTITY", message}` |
 | Not found | feature exception extending `shared.error.NotFoundException` | 404 `{code:"NOT_FOUND", message}` |
-| Input shape (bean validation) | `MethodArgumentNotValidException` in web | 422 (or the project's rule) |
+| Input shape (bean validation) | `MethodArgumentNotValidException` in `api` | 422 (or the project's rule) |
 | Unexpected | generic handler | 500 `{code:"INTERNAL_SERVER_ERROR", message}` without internals |
 
 Existing error messages are part of the contract: when migrating, keep text and status identical.
@@ -80,9 +92,13 @@ Existing error messages are part of the contract: when migrating, keep text and 
 | Global exception handler, `ApiError`, error base classes | `shared.web`, `shared.error` |
 | `Clock`, jackson/other generic beans | `shared.config` |
 | Security **infrastructure** (JWT decoder, validators, CORS, entry points) | `shared.security`; it receives anything feature-specific as a bean of a framework type (for example an `AuthorizationManager`) that a feature provides - `shared` never imports the feature |
-| Resolving the caller into the feature's own model (who is the account holder) | the owning feature: a port in its `domain` (`CallerIdentity`) + adapter in `<feature>.infra.security`, used by its `application` service |
-| Seed / demo data (profile `local`) | the owning feature's `infra.seed`, guarded by `@Profile` |
-| Outbox + relay + Kafka producer of one feature | that feature's `infra.messaging` |
-| A pure helper used by one feature | that feature (`domain` if it is a business rule, `infra` otherwise) |
+| Resolving the caller into the feature's own model (who is the account holder) | the owning feature: a port in its `application.port` (`CallerIdentity`) + adapter in `<feature>.infrastructure.security`, used by its use cases |
+| Seed / demo data (profile `local`) | the owning feature's `infrastructure.seed`, guarded by `@Profile` |
+| Outbox + relay + Kafka producer of one feature | that feature's `infrastructure.messaging` |
+| A pure helper used by one feature | that feature (`domain` if it is a business rule, `infrastructure` otherwise) |
 
 Keep `shared` small: if a class is used by one feature, it belongs to that feature.
+
+## D9 - sub-packages
+
+Create a sub-package only when the parent holds about 7 to 10 classes **and** there is a clear grouping criterion (a sub-domain, never a technical type). Until then stay flat: `domain/` without `model/`, `usecase/` without sub-folders, `api/` with `response/` only when it has many records.

@@ -44,17 +44,18 @@ test('rich: creates the layout of the model, replaces every token, and the resul
   const p = `src/main/java/${BASE.replaceAll('.', '/')}`;
   const t = `src/test/java/${BASE.replaceAll('.', '/')}`;
   for (const expected of [
-    `${p}/order/domain/Order.java`, `${p}/order/domain/OrderRepository.java`, `${p}/order/domain/OrderNotFoundException.java`, `${p}/order/domain/InvalidOrderException.java`,
-    `${p}/order/application/OrderService.java`,
-    `${p}/order/infra/persistence/OrderEntity.java`, `${p}/order/infra/persistence/OrderJpaRepository.java`, `${p}/order/infra/persistence/OrderRepositoryAdapter.java`,
-    `${p}/order/infra/web/OrderController.java`, `${p}/order/infra/web/OrderResponse.java`,
+    `${p}/order/domain/Order.java`, `${p}/order/domain/OrderNotFoundException.java`, `${p}/order/domain/InvalidOrderException.java`,
+    `${p}/order/application/port/OrderRepository.java`,
+    `${p}/order/application/usecase/CreateOrderUseCase.java`, `${p}/order/application/usecase/GetOrderUseCase.java`,
+    `${p}/order/infrastructure/persistence/OrderEntity.java`, `${p}/order/infrastructure/persistence/OrderJpaRepository.java`, `${p}/order/infrastructure/persistence/OrderRepositoryAdapter.java`,
+    `${p}/order/api/OrderController.java`, `${p}/order/api/OrderResponse.java`,
     `${p}/shared/error/BusinessRuleException.java`, `${p}/shared/web/GlobalExceptionHandler.java`, `${p}/shared/config/ClockConfig.java`,
-    `${t}/order/domain/OrderTest.java`, `${t}/order/application/OrderServiceTest.java`, `${t}/order/infra/persistence/OrderRepositoryAdapterTest.java`, `${t}/order/infra/web/OrderControllerTest.java`,
+    `${t}/order/domain/OrderTest.java`, `${t}/order/application/usecase/CreateOrderUseCaseTest.java`, `${t}/order/application/usecase/GetOrderUseCaseTest.java`, `${t}/order/infrastructure/persistence/OrderRepositoryAdapterTest.java`, `${t}/order/api/OrderControllerTest.java`,
     `${t}/ArchitectureTest.java`,
   ]) assert.ok(existsSync(path.join(dir, expected)), `missing ${expected}`);
   assert.equal(result.created.length, files(dir).filter((f) => f.endsWith('.java')).length);
   for (const f of files(dir).filter((f) => f.endsWith('.java'))) assert.ok(!readFileSync(path.join(dir, f), 'utf-8').includes('{{'), `${f} still has a token`);
-  assert.match(readFileSync(path.join(dir, `${p}/order/infra/persistence/OrderEntity.java`), 'utf-8'), /@Table\(name = "orders"\)/);
+  assert.match(readFileSync(path.join(dir, `${p}/order/infrastructure/persistence/OrderEntity.java`), 'utf-8'), /@Table\(name = "orders"\)/);
   assert.equal(check({ src: path.join(dir, 'src', 'main', 'java'), basePackage: BASE }).violations.length, 0);
   rmSync(dir, { recursive: true });
 });

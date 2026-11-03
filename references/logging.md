@@ -10,11 +10,11 @@ Tracing is native and automatic when the project enables it: `traceId`/`spanId` 
 
 | Place | Rule |
 |---|---|
-| `infra.web` (controller, request/response records) | No logging. The access line already records method, path, status and duration. |
-| `application` (the `<Feature>Service`) | One `INFO` line when a **state-changing** method succeeds (`created`, `paid`, `cancelled`). Reads log nothing, or `DEBUG` at most. |
+| `api` (controller, request/response records) | No logging. The access line already records method, path, status and duration. |
+| `application.usecase` (the `<Verb><Noun>UseCase`) | One `INFO` line when a **state-changing** use case succeeds (`created`, `paid`, `cancelled`). Reads log nothing, or `DEBUG` at most. |
 | `domain` | **Never** (no SLF4J import is allowed there). Express failures with exceptions. |
-| `infra.persistence` | No logging, except an unexpected storage failure translated once into an application exception. |
-| `infra.client`, `infra.messaging` | Log only unexpected external failures (`WARN`/`ERROR`) with the cause, once, where they are translated into a domain/application exception. |
+| `infrastructure.persistence` | No logging, except an unexpected storage failure translated once into an application exception. |
+| `infrastructure.client`, `infrastructure.messaging` | Log only unexpected external failures (`WARN`/`ERROR`) with the cause, once, where they are translated into a domain/application exception. |
 | `shared.web` exception handler | The single place that logs failures: business/validation errors at `INFO` without stack trace, unexpected errors at `ERROR` with stack trace. |
 
 Never log and rethrow the same exception: it produces duplicate lines. Log where the exception is handled, not where it passes.
@@ -22,7 +22,7 @@ Never log and rethrow the same exception: it produces duplicate lines. Log where
 ## Shape of a line
 
 ```java
-private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+private static final Logger log = LoggerFactory.getLogger(CreateOrderUseCase.class);
 
 log.atInfo()
     .addKeyValue("orderId", order.id())
