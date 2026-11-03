@@ -146,7 +146,7 @@ export function check({ src, basePackage, legacy = [], strict = false }) {
       if (feature && feature !== 'shared' && target && target.feature !== feature && target.feature !== 'shared' && target.layer === 'infra') {
         add(violations, 'A05', p, imp.line, `feature '${feature}' uses infra of feature '${target.feature}': ${imp.name}`);
       }
-      if (feature === 'shared' && target && target.feature !== 'shared') {
+      if (feature === 'shared' && target && target.feature !== 'shared' && !legacySet.has(target.feature)) {
         add(violations, 'A10', p, imp.line, `shared depends on feature '${target.feature}': ${imp.name}`);
       }
     }

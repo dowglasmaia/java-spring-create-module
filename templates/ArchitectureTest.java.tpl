@@ -141,6 +141,7 @@ class ArchitectureTest {
         }
         String rest = packageName.substring(BASE.length() + 1);
         int dot = rest.indexOf('.');
-        return dot < 0 ? rest : rest.substring(0, dot);
+        String first = dot < 0 ? rest : rest.substring(0, dot);
+        return LEGACY_PACKAGES.contains(first) ? null : first; // an unmigrated layered package is not a feature
     }
 }
